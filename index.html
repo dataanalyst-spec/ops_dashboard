@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operations Dashboard</title>
+<style>
+:root{--bg:#f1f4f8;--card:#fff;--ink:#14212b;--mute:#5d6d7a;--line:#9aa7b2;--soft:#d9e0e6;--accent:#16507a;--ok:#bcdcf8;--warn:#f5b9be;--mid:#d9cdee;--good:#1f7a4d;--bad:#b3261e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 "Segoe UI",system-ui,sans-serif}
+header{background:var(--accent);color:#fff;padding:10px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+header h1{margin:0;font-size:18px}
+.src{display:flex;gap:8px;align-items:center;font-size:13px;flex-wrap:wrap}
+button,select{font:inherit}
+button,.btn{background:#fff;color:var(--accent);border:0;border-radius:4px;padding:5px 11px;cursor:pointer}
+nav{display:flex;flex-wrap:wrap;gap:2px;padding:8px 20px 0;background:var(--card);border-bottom:1px solid var(--soft)}
+nav button{background:none;color:var(--mute);border-radius:4px 4px 0 0;padding:9px 14px;border-bottom:3px solid transparent}
+nav button.on{color:var(--ink);font-weight:600;border-color:var(--accent)}
+.layout{display:flex;gap:14px;padding:14px 20px;align-items:flex-start}
+aside{width:170px;flex:none;display:flex;flex-direction:column;gap:10px;position:sticky;top:8px}
+aside label{font-weight:600;display:flex;flex-direction:column;gap:3px}
+aside select{padding:5px;border:1px solid var(--line);border-radius:4px;background:#fff}
+.kpi{background:var(--card);border:1px solid var(--line);border-top:4px solid var(--ink);border-radius:5px;padding:14px 8px;text-align:center}
+.kpi.ok{border-top-color:var(--good)}.kpi.no{border-top-color:var(--bad)}
+.kpi span{font-weight:600;font-size:13px}.kpi b{display:block;font-size:30px}
+section.rep{flex:1;min-width:0}
+.title{text-align:center;font-size:28px;font-weight:700;margin:0 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:10px 12px;margin-bottom:14px}
+.card h2{text-align:center;margin:0 0 8px;font-size:18px}
+.wrap{overflow:auto;max-height:430px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border:1px solid var(--line);padding:5px 8px;text-align:center;white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis}
+td:first-child{text-align:left}
+th{background:#fff;position:sticky;top:0;z-index:1;border-bottom:2px solid var(--ink)}
+tfoot td{font-weight:700;position:sticky;bottom:0;background:#eef3f7}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px}
+.g2 .card{margin:0}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px}
+.b-ok{background:#d6f0e1;color:var(--good)}.b-no{background:#fbd9d6;color:var(--bad)}
+.msg{padding:30px;text-align:center;color:var(--mute)}.err{color:var(--bad)}
+.note{color:var(--mute);font-size:12px}
+@media(max-width:800px){.layout{flex-direction:column}aside{width:100%;position:static;flex-direction:row;flex-wrap:wrap}}
+@media print{header,nav,aside .noprint{display:none}.layout{padding:0}.wrap{max-height:none;overflow:visible}body{background:#fff}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Operations Reports</h1>
+  <div class="src">
+    <span id="status">Not loaded</span>
+    <button id="reload">Reload from Google Sheet</button>
+    <label class="btn">Upload CSV<input id="file" type="file" accept=".csv" hidden></label>
+    <button onclick="window.print()">Print / Save PDF</button>
+  </div>
+</header>
+<nav id="tabs"></nav>
+<div class="layout">
+  <aside id="filters"></aside>
+  <section class="rep" id="view"><div class="msg">Loading…</div></section>
+</div>
+
+<script>
+/* ---------- CONFIG ---------- */
+const PUB_ID = "2PACX-1vRa8WcNgkeutrP8x-D1c2NVNGYbMQrhAcDw38bfA9LnY1Q9iWyCvKYnYsj-OueH6u97MHutoenuw0Cq"; // Publish-to-web link id
+const GID = "1582878707";            // the Master tab (if the published link is only one sheet, this is ignored)
+const PROPS=["Gurukul","Tulsi","Camikara","Curie","Heisenberg","Samriddhi","Abhivritti","Plato","Adarsha","Orchid 5","Tara","Aradhana","Akanksha","Samshrusti","Meera","Kirti"];
+const ALIAS={"orchid hostel":"Orchid 5","orchid":"Orchid 5","adarsh":"Adarsha","akansha":"Akanksha","akanksha":"Akanksha","aradhna":"Aradhana"};
+const GROUP_JAYANTA=["abhivritti","meera","samshrusti","kirti","camikara","ikshana"];
+const DONE=/^complete/i;     // Status that counts as "filled"
+// Panels group columns by keywords in the header (first match wins). Unmatched columns go to "Other details".
+const TASKS=[
+ {id:"ops",label:"Daily Expenses / Ops Report",match:["daily ops","expen"],panels:[
+  ["MIR, Attendance, HK & Security",/mir|moved in|attendance/i],["Water Tanker, Water Jar",/water/i],["Laundry",/laundry/i],
+  ["BUs Pick Up - Drop",/\bbus/i],["DG Topped Up",/\bdg\b/i],["Electricity",/electric|meter|unit/i],["Breakfast / Lunch / Dinner",/breakfast|lunch|dinner/i]]},
+ {id:"round",label:"Daily Property Round",match:["property round"],panels:[
+  ["Entrance Area",/entrance/i],["Security Desk",/security/i],["Reception Area",/reception/i],["Grooming Standard",/grooming/i],["Cafeteria Setup",/cafeteria/i],
+  ["Corridor Passage",/corridor/i],["Room Audit - HK Checking",/room|hk check/i],["Student Interactions",/student/i],["Self Observation",/self/i]]},
+ {id:"area",label:"Area Manager Report",match:["area manager"],panels:[
+  ["Tickets",/ticket/i],["Student Concerns & Complaints",/concern|complaint|escalation|interact/i],["Security",/security|guard/i],
+  ["Registers & Staff",/register|housekeeping|staff/i],["Facilities",/cctv|gym|signage|emergency|occupancy|dg|amc|pest/i]]},
+ {id:"om",label:"Daily Task - Operation Managers",match:["operation manager"],panels:[]}
+];
+/* ---------------------------- */
+const $=s=>document.querySelector(s);
+let rows=[],cols=[],M={},tab="ops",F={year:"",month:"",day:"",property:""};
+const opManager=p=>GROUP_JAYANTA.includes((p||"").trim().toLowerCase())?"Jayanta":"Arindam";
+const canon=p=>{const k=(p||"").trim().toLowerCase();return PROPS.find(x=>x.toLowerCase()===k)||ALIAS[k]||null};
+
+function parseCSV(t){const out=[];let r=[],c="",q=false;
+ for(let i=0;i<t.length;i++){const ch=t[i];
+  if(q){if(ch=='"'){if(t[i+1]=='"'){c+='"';i++}else q=false}else c+=ch}
+  else if(ch=='"')q=true;else if(ch==","){r.push(c);c=""}
+  else if(ch=="\n"){r.push(c);out.push(r);r=[];c=""}else if(ch!="\r")c+=ch}
+ if(c||r.length){r.push(c);out.push(r)}return out}
+function parseDate(s){s=(s||"").trim();if(!s)return null;
+ let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)return{y:+m[1],m:+m[2],d:+m[3]};
+ m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+ if(m){let a=+m[1],b=+m[2],y=+m[3];if(y<100)y+=2000;return b>12?{y,m:a,d:b}:{y,m:b,d:a}}
+ const d=new Date(s);return isNaN(d)?null:{y:d.getFullYear(),m:d.getMonth()+1,d:d.getDate()}}
+function load(text){
+ const t=parseCSV(text).filter(r=>r.some(x=>x.trim()));
+ cols=t[0].map(h=>h.trim());const find=re=>cols.findIndex(h=>re.test(h));
+ M={task:find(/task\s*name/i),prop:find(/^property$|name of the property/i),date:find(/date|timestamp|submitted|created (at|on)/i),
+    status:find(/status/i),y:find(/^year$/i),mo:find(/^month$/i),d:find(/^day$/i),
+    asg:find(/assigned to/i),by:find(/created by/i)};
+ if(M.task<0||M.prop<0){fail("Couldn't find 'Task name' and 'Property' columns. Found: "+cols.join(", "));return}
+ rows=t.slice(1).map(r=>{const o={v:r,prop:canon(r[M.prop]),task:(r[M.task]||"").toLowerCase()};
+  let dt=M.date>=0?parseDate(r[M.date]):null;if(!dt&&M.y>=0)dt={y:+r[M.y],m:+r[M.mo],d:+r[M.d]};
+  o.y=dt?dt.y:0;o.m=dt?dt.m:0;o.d=dt?dt.d:0;o.status=M.status>=0?(r[M.status]||"").trim():"";
+  o.done=DONE.test(o.status);o.tid=(TASKS.find(k=>k.match.some(x=>o.task.includes(x)))||{}).id||"";return o}).filter(o=>o.prop&&o.tid&&o.y);
+ const L=rows.slice().sort((a,b)=>b.y*1e4+b.m*100+b.d-(a.y*1e4+a.m*100+a.d))[0];
+ if(L){F.year=String(L.y);F.month=String(L.m);F.day=String(L.d)}
+ $("#status").textContent=rows.length+" rows loaded";render()}
+function fail(m){$("#view").innerHTML='<div class="msg err">'+m+'</div>';$("#status").textContent="Load failed"}
+async function fetchSheet(){$("#status").textContent="Loading…";
+ try{const base=`https://docs.google.com/spreadsheets/d/e/${PUB_ID}/pub?output=csv`;
+  let r=await fetch(base+`&gid=${GID}&single=true`);if(!r.ok)r=await fetch(base);if(!r.ok)throw 0;load(await r.text())}
+ catch(e){fail("Couldn't read the Google Sheet. Check that File → Share → Publish to web is still on, then click Reload. Or use Upload CSV.")}}
+
+const uniq=a=>[...new Set(a)].filter(x=>x!==""&&x!=="0"&&x!=0).sort((x,y)=>x-y);
+const inScope=(o,tid)=>o.tid===tid&&o.y==F.year&&o.m==F.month&&(!F.day||o.d==F.day)&&(!F.property||o.prop===F.property);
+function daysList(){const y=+F.year,m=+F.month,dim=new Date(y,m,0).getDate(),n=new Date();
+ const last=(n.getFullYear()==y&&n.getMonth()+1==m)?n.getDate():dim;
+ if(F.day)return[+F.day];return Array.from({length:last},(_,i)=>i+1)}
+function doneMap(tid){const s=new Set();rows.forEach(o=>{if(o.tid===tid&&o.done&&o.y==F.year&&o.m==F.month)s.add(o.prop+"|"+o.d)});return s}
+const scopeProps=()=>F.property?[F.property]:PROPS;
+
+function renderFilters(){
+ const opt=(k,v)=>`<label>${k[0].toUpperCase()+k.slice(1)}<select data-k="${k}"><option value="">All</option>${v.map(x=>`<option ${F[k]==x?"selected":""}>${x}</option>`).join("")}</select></label>`;
+ const dm=doneMap(tab==="fill"?"ops":tab),days=daysList(),ps=scopeProps();
+ let f=0;ps.forEach(p=>days.forEach(d=>{if(dm.has(p+"|"+d))f++}));
+ const filledP=ps.filter(p=>days.some(d=>dm.has(p+"|"+d))).length;
+ const single=!!F.day;
+ $("#filters").innerHTML=opt("year",uniq(rows.map(o=>o.y)))+opt("month",uniq(rows.map(o=>o.m)))+opt("day",uniq(rows.map(o=>o.d)))+opt("property",PROPS.slice().sort())
+  +(tab!=="fill"?`<div class="kpi ok"><span>Filled Properties</span><b>${single?filledP:f}</b></div><div class="kpi no"><span>Pending Properties</span><b>${single?ps.length-filledP:ps.length*days.length-f}</b></div>`:"");
+ document.querySelectorAll("#filters select").forEach(s=>s.onchange=()=>{F[s.dataset.k]=s.value;render()})}
+function renderTabs(){
+ $("#tabs").innerHTML=[...TASKS,{id:"fill",label:"Filling Rate"}].map(t=>`<button class="${tab===t.id?"on":""}" data-t="${t.id}">${t.label}</button>`).join("");
+ document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;render()})}
+
+const tbl=(h,b,f)=>`<div class="wrap"><table><thead><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr></thead><tbody>${b}</tbody>${f?`<tfoot>${f}</tfoot>`:""}</table></div>`;
+const card=(t,inner)=>`<div class="card"><h2>${t}</h2>${inner}</div>`;
+
+function taskView(tid){
+ const T=TASKS.find(t=>t.id===tid),days=daysList(),dm=doneMap(tid),ps=scopeProps();
+ const data=rows.filter(o=>inScope(o,tid));
+ const done=data.filter(o=>o.done),
+ dateStr=o=>o.d+"/"+o.m+"/"+o.y;
+ // summary by day
+ const sumRows=days.map(d=>{const f=ps.filter(p=>dm.has(p+"|"+d)).length;return `<tr><td>${d}</td><td>${f} Filled | ${ps.length-f} Pending</td></tr>`}).join("");
+ // completed list
+ const extra=[M.asg,M.by].filter(i=>i>=0);
+ const compB=done.map(o=>`<tr><td>${o.prop}</td><td>${dateStr(o)}</td>${extra.map(i=>`<td title="${o.v[i]||""}">${o.v[i]||""}</td>`).join("")}</tr>`).join("");
+ // incompleted list
+ const inc=[];days.forEach(d=>ps.forEach(p=>{if(!dm.has(p+"|"+d)){
+  const r=rows.find(o=>o.tid===tid&&o.prop===p&&o.y==F.year&&o.m==F.month&&o.d==d);
+  inc.push(`<tr><td>${p}</td><td>${d}/${F.month}/${F.year}</td><td><span class="badge b-no">${r&&r.status?r.status:"Not submitted"}</span></td><td>${opManager(p)}</td></tr>`)}}));
+ let out=`<h1 class="title">${T.label}</h1><div class="g2">`
+  +card(`Completed List (${F.day?done.length:done.length+" submissions"})`,tbl(["Property","Date",...extra.map(i=>cols[i])],compB||'<tr><td colspan="9">None</td></tr>'))
+  +card(`Incompleted List (${inc.length})`,tbl(["Property","Date","Status","Operation Manager"],inc.join("")||'<tr><td colspan="4">All properties completed</td></tr>'))
+  +`</div><div style="height:14px"></div>`+card("Summary",tbl(["Day","Property Summary"],sumRows));
+ // panels
+ const skip=new Set([M.task,M.prop,M.date,M.y,M.mo,M.d,M.status,...extra]);
+ const has=i=>data.some(o=>(o.v[i]||"").trim()!=="");
+ let left=cols.map((_,i)=>i).filter(i=>!skip.has(i)&&has(i));
+ const groups=[];
+ T.panels.forEach(([n,re])=>{const g=left.filter(i=>re.test(cols[i]));left=left.filter(i=>!g.includes(i));if(g.length)groups.push([n,g])});
+ if(left.length)groups.push(["Other details",left]);
+ out+=`<div class="g2" style="margin-top:14px">`+groups.map(([n,g])=>{
+  const body=data.filter(o=>g.some(i=>(o.v[i]||"").trim()!=="")).map(o=>`<tr><td>${o.prop}</td>${F.day?"":`<td>${o.d}</td>`}`+g.map(i=>`<td title="${(o.v[i]||"").replace(/"/g,"&quot;")}">${o.v[i]||""}</td>`).join("")+"</tr>").join("");
+  const sums=g.map(i=>{const v=data.map(o=>(o.v[i]||"").trim()).filter(x=>x!=="");return v.length&&v.every(x=>!isNaN(x.replace(/,/g,"")))?Math.round(v.reduce((a,x)=>a+ +x.replace(/,/g,""),0)*100)/100:null});
+  const foot=sums.some(s=>s!==null)?`<tr><td>Total</td>${F.day?"":"<td></td>"}${sums.map(s=>`<td>${s===null?"":s}</td>`).join("")}</tr>`:"";
+  return card(n,tbl(["Property",...(F.day?[]:["Day"]),...g.map(i=>cols[i])],body,foot))}).join("")+"</div>";
+ return out}
+
+function fillTable(tid,byOM){
+ const y=+F.year,m=+F.month;if(!y||!m)return'<div class="msg">Select Year and Month</div>';
+ const all=Array.from({length:new Date(y,m,0).getDate()},(_,i)=>i+1);
+ const n=new Date(),last=(n.getFullYear()==y&&n.getMonth()+1==m)?n.getDate():all.length;
+ const wk=d=>Math.min(5,Math.ceil(d/7)),exp=[0,0,0,0,0];for(let d=1;d<=last;d++)exp[wk(d)-1]++;
+ const dm=doneMap(tid),keys=byOM?["Arindam","Jayanta"]:PROPS;
+ const pOf=k=>byOM?PROPS.filter(p=>opManager(p)===k):[k];
+ const rate=(ps,w)=>{const dd=all.filter(d=>d<=last&&(w===null||wk(d)==w+1));if(!dd.length)return null;
+  let f=0;ps.forEach(p=>dd.forEach(d=>{if(dm.has(p+"|"+d))f++}));return f/(ps.length*dd.length)};
+ const cell=v=>v===null?"<td></td>":`<td style="background:${v>=1?"var(--ok)":v>=.8?"var(--mid)":"var(--warn)"}">${(v*100).toFixed(2)}%</td>`;
+ const L=keys.map(k=>({k,w:[0,1,2,3,4].map(i=>rate(pOf(k),i)),t:rate(pOf(k),null)})).sort((a,b)=>(a.t??0)-(b.t??0));
+ const body=L.map(l=>`<tr><td>${l.k}</td>${l.w.map(cell).join("")}${cell(l.t)}</tr>`).join("");
+ const foot=`<tr><td>Total</td>${[0,1,2,3,4].map(i=>`<td>${rate(PROPS,i)===null?"":(rate(PROPS,i)*100).toFixed(2)+"%"}</td>`).join("")}<td>${(rate(PROPS,null)*100).toFixed(2)}%</td></tr>`;
+ return tbl([byOM?"Operation Manager":"Property",...[1,2,3,4,5].map(i=>"Week -"+i),"Total"],body,foot)}
+function fillView(){
+ const T=TASKS.filter(t=>t.id!=="om");
+ return `<h1 class="title">Filling Rate</h1><div class="g2">`+T.map(t=>card(t.label+" Filling Rate",fillTable(t.id,false)+'<div style="height:12px"></div>'+fillTable(t.id,true))).join("")
+ +`</div><p class="note">A property counts as filled for a day only when its Status is "Completed". Rate = completed days ÷ days elapsed. Week 1 = days 1–7, Week 2 = 8–14, and so on. Blue = 100%, purple = 80%+, pink = below 80%.</p>`}
+
+function render(){if(!rows.length)return;renderTabs();renderFilters();$("#view").innerHTML=tab==="fill"?fillView():taskView(tab)}
+$("#reload").onclick=fetchSheet;
+$("#file").onchange=e=>{const f=e.target.files[0];if(f)f.text().then(load)};
+fetchSheet();
+</script>
+</body>
+</html>
